@@ -308,8 +308,8 @@ func TestTimeout(t *testing.T) {
 	}
 }
 
-func TestLogger(t *testing.T) {
-	// todo
+func TestLogger(_ *testing.T) {
+	// TODO
 }
 
 func TestRequestDecoder(t *testing.T) {
@@ -369,5 +369,21 @@ func TestListener(t *testing.T) {
 	}
 	if e, err := s.Endpoint(); err != nil || e == nil {
 		t.Errorf("expected not empty")
+	}
+}
+
+func TestNotFoundHandler(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := NewServer(NotFoundHandler(mux))
+	if !reflect.DeepEqual(srv.router.NotFoundHandler, mux) {
+		t.Errorf("expected %v got %v", mux, srv.router.NotFoundHandler)
+	}
+}
+
+func TestMethodNotAllowedHandler(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := NewServer(MethodNotAllowedHandler(mux))
+	if !reflect.DeepEqual(srv.router.MethodNotAllowedHandler, mux) {
+		t.Errorf("expected %v got %v", mux, srv.router.MethodNotAllowedHandler)
 	}
 }

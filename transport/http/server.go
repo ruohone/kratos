@@ -9,15 +9,14 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/go-kratos/kratos/v2/internal/endpoint"
-	"github.com/go-kratos/kratos/v2/internal/matcher"
+	"github.com/gorilla/mux"
 
+	"github.com/go-kratos/kratos/v2/internal/endpoint"
 	"github.com/go-kratos/kratos/v2/internal/host"
+	"github.com/go-kratos/kratos/v2/internal/matcher"
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/go-kratos/kratos/v2/middleware"
 	"github.com/go-kratos/kratos/v2/transport"
-
-	"github.com/gorilla/mux"
 )
 
 var (
@@ -43,6 +42,13 @@ func Address(addr string) ServerOption {
 	}
 }
 
+// Endpoint with server address.
+func Endpoint(endpoint *url.URL) ServerOption {
+	return func(s *Server) {
+		s.endpoint = endpoint
+	}
+}
+
 // Timeout with server timeout.
 func Timeout(timeout time.Duration) ServerOption {
 	return func(s *Server) {
@@ -52,7 +58,7 @@ func Timeout(timeout time.Duration) ServerOption {
 
 // Logger with server logger.
 // Deprecated: use global logger instead.
-func Logger(logger log.Logger) ServerOption {
+func Logger(_ log.Logger) ServerOption {
 	return func(s *Server) {}
 }
 
@@ -128,10 +134,22 @@ func Listener(lis net.Listener) ServerOption {
 	}
 }
 
-// PathPrefix with mux's PathPrefix, router will replaced by a subrouter that start with prefix.
+// PathPrefix with mux's PathPrefix, router will be replaced by a subrouter that start with prefix.
 func PathPrefix(prefix string) ServerOption {
 	return func(s *Server) {
 		s.router = s.router.PathPrefix(prefix).Subrouter()
+	}
+}
+
+func NotFoundHandler(handler http.Handler) ServerOption {
+	return func(s *Server) {
+		s.router.NotFoundHandler = handler
+	}
+}
+
+func MethodNotAllowedHandler(handler http.Handler) ServerOption {
+	return func(s *Server) {
+		s.router.MethodNotAllowedHandler = handler
 	}
 }
 
@@ -171,12 +189,12 @@ func NewServer(opts ...ServerOption) *Server {
 		strictSlash: true,
 		router:      mux.NewRouter(),
 	}
+	srv.router.NotFoundHandler = http.DefaultServeMux
+	srv.router.MethodNotAllowedHandler = http.DefaultServeMux
 	for _, o := range opts {
 		o(srv)
 	}
 	srv.router.StrictSlash(srv.strictSlash)
-	srv.router.NotFoundHandler = http.DefaultServeMux
-	srv.router.MethodNotAllowedHandler = http.DefaultServeMux
 	srv.router.Use(srv.filter())
 	srv.Server = &http.Server{
 		Handler:   FilterChain(srv.filters...)(srv.router),
@@ -210,6 +228,14 @@ func (s *Server) WalkRoute(fn WalkRouteFunc) error {
 				return err
 			}
 		}
+		return nil
+	})
+}
+
+// WalkHandle walks the router and all its sub-routers, calling walkFn for each route in the tree.
+func (s *Server) WalkHandle(handle func(method, path string, handler http.HandlerFunc)) error {
+	return s.WalkRoute(func(r RouteInfo) error {
+		handle(r.Method, r.Path, s.ServeHTTP)
 		return nil
 	})
 }

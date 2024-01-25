@@ -44,11 +44,11 @@ func TestWithMiddleware(t *testing.T) {
 
 type mockRegistry struct{}
 
-func (m *mockRegistry) GetService(ctx context.Context, serviceName string) ([]*registry.ServiceInstance, error) {
+func (m *mockRegistry) GetService(_ context.Context, _ string) ([]*registry.ServiceInstance, error) {
 	return nil, nil
 }
 
-func (m *mockRegistry) Watch(ctx context.Context, serviceName string) (registry.Watcher, error) {
+func (m *mockRegistry) Watch(_ context.Context, _ string) (registry.Watcher, error) {
 	return nil, nil
 }
 
@@ -116,6 +116,16 @@ func TestWithOptions(t *testing.T) {
 	WithOptions(v...)(o)
 	if !reflect.DeepEqual(v, o.grpcOpts) {
 		t.Errorf("expect %v but got %v", v, o.grpcOpts)
+	}
+}
+
+func TestWithHealthCheck(t *testing.T) {
+	o := &clientOptions{
+		healthCheckConfig: `,"healthCheckConfig":{"serviceName":""}`,
+	}
+	WithHealthCheck(false)(o)
+	if !reflect.DeepEqual("", o.healthCheckConfig) {
+		t.Errorf("expect %v but got %v", "", o.healthCheckConfig)
 	}
 }
 

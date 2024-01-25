@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/imdario/mergo"
+
 	// init encoding
 	_ "github.com/go-kratos/kratos/v2/encoding/json"
 	_ "github.com/go-kratos/kratos/v2/encoding/proto"
@@ -15,14 +17,9 @@ import (
 	"github.com/go-kratos/kratos/v2/log"
 )
 
-var (
-	// ErrNotFound is key not found.
-	ErrNotFound = errors.New("key not found")
-	// ErrTypeAssert is type assert error.
-	ErrTypeAssert = errors.New("type assert error")
+var _ Config = (*config)(nil)
 
-	_ Config = (*config)(nil)
-)
+var ErrNotFound = errors.New("key not found") // ErrNotFound is key not found.
 
 // Observer is config observer.
 type Observer func(string, Value)
@@ -44,11 +41,14 @@ type config struct {
 	watchers  []Watcher
 }
 
-// New new a config with options.
+// New a config with options.
 func New(opts ...Option) Config {
 	o := options{
 		decoder:  defaultDecoder,
 		resolver: defaultResolver,
+		merge: func(dst, src interface{}) error {
+			return mergo.Map(dst, src, mergo.WithOverride)
+		},
 	}
 	for _, opt := range opts {
 		opt(&o)
@@ -62,11 +62,11 @@ func New(opts ...Option) Config {
 func (c *config) watch(w Watcher) {
 	for {
 		kvs, err := w.Next()
-		if errors.Is(err, context.Canceled) {
-			log.Infof("watcher's ctx cancel : %v", err)
-			return
-		}
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				log.Infof("watcher's ctx cancel : %v", err)
+				return
+			}
 			time.Sleep(time.Second)
 			log.Errorf("failed to watch next config: %v", err)
 			continue

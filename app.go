@@ -30,7 +30,7 @@ type AppInfo interface {
 type App struct {
 	opts     options
 	ctx      context.Context
-	cancel   func()
+	cancel   context.CancelFunc
 	mu       sync.Mutex
 	instance *registry.ServiceInstance
 }
@@ -89,8 +89,15 @@ func (a *App) Run() error {
 	a.mu.Lock()
 	a.instance = instance
 	a.mu.Unlock()
-	eg, ctx := errgroup.WithContext(NewContext(a.ctx, a))
+	sctx := NewContext(a.ctx, a)
+	eg, ctx := errgroup.WithContext(sctx)
 	wg := sync.WaitGroup{}
+
+	for _, fn := range a.opts.beforeStart {
+		if err = fn(sctx); err != nil {
+			return err
+		}
+	}
 	for _, srv := range a.opts.servers {
 		srv := srv
 		eg.Go(func() error {
@@ -109,10 +116,16 @@ func (a *App) Run() error {
 	if a.opts.registrar != nil {
 		rctx, rcancel := context.WithTimeout(ctx, a.opts.registrarTimeout)
 		defer rcancel()
-		if err := a.opts.registrar.Register(rctx, instance); err != nil {
+		if err = a.opts.registrar.Register(rctx, instance); err != nil {
 			return err
 		}
 	}
+	for _, fn := range a.opts.afterStart {
+		if err = fn(sctx); err != nil {
+			return err
+		}
+	}
+
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, a.opts.sigs...)
 	eg.Go(func() error {
@@ -123,28 +136,37 @@ func (a *App) Run() error {
 			return a.Stop()
 		}
 	})
-	if err := eg.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+	if err = eg.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
-	return nil
+	err = nil
+	for _, fn := range a.opts.afterStop {
+		err = fn(sctx)
+	}
+	return err
 }
 
 // Stop gracefully stops the application.
-func (a *App) Stop() error {
+func (a *App) Stop() (err error) {
+	sctx := NewContext(a.ctx, a)
+	for _, fn := range a.opts.beforeStop {
+		err = fn(sctx)
+	}
+
 	a.mu.Lock()
 	instance := a.instance
 	a.mu.Unlock()
 	if a.opts.registrar != nil && instance != nil {
 		ctx, cancel := context.WithTimeout(NewContext(a.ctx, a), a.opts.registrarTimeout)
 		defer cancel()
-		if err := a.opts.registrar.Deregister(ctx, instance); err != nil {
+		if err = a.opts.registrar.Deregister(ctx, instance); err != nil {
 			return err
 		}
 	}
 	if a.cancel != nil {
 		a.cancel()
 	}
-	return nil
+	return err
 }
 
 func (a *App) buildInstance() (*registry.ServiceInstance, error) {
